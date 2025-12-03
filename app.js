@@ -1,140 +1,129 @@
-//jshint esversion:6
-
 const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const _ = require("lodash");
 
+const db = require("./database");
+const {Item, defaultItems} = require("./list_module/item");
+const List = require("./list_module/list");
+
 const app = express();
 
 app.set('view engine', 'ejs');
-
-app.use(bodyParser.urlencoded({extended: true}));
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static("public"));
 
-mongoose.connect("mongodb://localhost:27017/todolistDB", {useNewUrlParser: true});
+db.getInstance();
 
-const itemsSchema = {
-  name: String
-};
+app.use(async (req, res, next) => {
+    try {
+        // Buscamos todas las listas, pero solo queremos el campo 'name'
+        const foundLists = await List.find({}, 'name');
 
-const Item = mongoose.model("Item", itemsSchema);
+        // 'res.locals' es una forma de pasar variables a TODAS las plantillas EJS automáticamente
+        res.locals.savedLists = foundLists;
 
-
-const item1 = new Item({
-  name: "Welcome to your todolist!"
+        next(); // Continúa hacia la ruta solicitada (ej: /, /about, etc.)
+    } catch (err) {
+        console.error("Error cargando el menú:", err);
+        res.locals.savedLists = []; // Si falla, pasamos una lista vacía para que no rompa la web
+        next();
+    }
 });
 
-const item2 = new Item({
-  name: "Hit the + button to add a new item."
-});
+// --- RUTAS ---
 
-const item3 = new Item({
-  name: "<-- Hit this to delete an item."
-});
+app.get("/", async (req, res) => {
+    try {
+        const foundItems = await Item.find({});
 
-const defaultItems = [item1, item2, item3];
-
-const listSchema = {
-  name: String,
-  items: [itemsSchema]
-};
-
-const List = mongoose.model("List", listSchema);
-
-
-app.get("/", function(req, res) {
-
-  Item.find({}, function(err, foundItems){
-
-    if (foundItems.length === 0) {
-      Item.insertMany(defaultItems, function(err){
-        if (err) {
-          console.log(err);
+        if (foundItems.length === 0) {
+            await Item.insertMany(defaultItems);
+            res.redirect("/");
         } else {
-          console.log("Successfully savevd default items to DB.");
+            res.render("list", { listTitle: "Today", newListItems: foundItems });
         }
-      });
-      res.redirect("/");
-    } else {
-      res.render("list", {listTitle: "Today", newListItems: foundItems});
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Error recuperando las taeas.");
     }
-  });
-
 });
 
-app.get("/:customListName", function(req, res){
-  const customListName = _.capitalize(req.params.customListName);
+app.get("/:customListName", async (req, res) => {
+    const customListName = _.capitalize(req.params.customListName);
 
-  List.findOne({name: customListName}, function(err, foundList){
-    if (!err){
-      if (!foundList){
-        //Create a new list
-        const list = new List({
-          name: customListName,
-          items: defaultItems
-        });
-        list.save();
-        res.redirect("/" + customListName);
-      } else {
-        //Show an existing list
+    try {
+        const foundList = await List.findOne({ name: customListName });
 
-        res.render("list", {listTitle: foundList.name, newListItems: foundList.items});
-      }
+        if (!foundList) {
+            // Crear nueva lista
+            const list = new List({
+                name: customListName,
+                items: defaultItems
+            });
+            await list.save();
+            res.redirect("/" + customListName);
+        } else {
+            // Mostrar lista existente
+            res.render("list", { listTitle: foundList.name, newListItems: foundList.items });
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Error buscando la lista personalizada.");
     }
-  });
-
-
-
 });
 
-app.post("/", function(req, res){
+app.post("/", async (req, res) => {
+    const itemName = req.body.newItem;
+    const listName = req.body.list;
 
-  const itemName = req.body.newItem;
-  const listName = req.body.list;
+    const item = new Item({ name: itemName });
 
-  const item = new Item({
-    name: itemName
-  });
-
-  if (listName === "Today"){
-    item.save();
-    res.redirect("/");
-  } else {
-    List.findOne({name: listName}, function(err, foundList){
-      foundList.items.push(item);
-      foundList.save();
-      res.redirect("/" + listName);
-    });
-  }
-});
-
-app.post("/delete", function(req, res){
-  const checkedItemId = req.body.checkbox;
-  const listName = req.body.listName;
-
-  if (listName === "Today") {
-    Item.findByIdAndRemove(checkedItemId, function(err){
-      if (!err) {
-        console.log("Successfully deleted checked item.");
+    if (listName === "Today") {
+        await item.save();
         res.redirect("/");
-      }
-    });
-  } else {
-    List.findOneAndUpdate({name: listName}, {$pull: {items: {_id: checkedItemId}}}, function(err, foundList){
-      if (!err){
-        res.redirect("/" + listName);
-      }
-    });
-  }
-
-
+    } else {
+        try {
+            const foundList = await List.findOne({ name: listName });
+            foundList.items.push(item);
+            await foundList.save();
+            res.redirect("/" + listName);
+        } catch (err) {
+            console.error(err);
+            res.status(500).send("Error guardando el item en la lista personalizada.");
+        }
+    }
 });
 
-app.get("/about", function(req, res){
-  res.render("about");
+app.post("/delete", async (req, res) => {
+    const checkedItemId = req.body.checkbox;
+    const listName = req.body.listName;
+
+    try {
+        if (listName === "Today") {
+            await Item.findByIdAndDelete(checkedItemId);
+            res.redirect("/");
+        } else {
+            await List.findOneAndUpdate(
+                { name: listName },
+                { $pull: { items: { _id: checkedItemId } } }
+            );
+            res.redirect("/" + listName);
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Error borrando el item.");
+    }
 });
 
-app.listen(3000, function() {
-  console.log("Server started on port 3000");
+app.get("/about", (req, res) => {
+    res.render("about");
+});
+
+// --- SERVIDOR ---
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, function () {
+    console.log("Server started on port", PORT);
 });

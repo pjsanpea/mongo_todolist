@@ -1,0 +1,33 @@
+<nav class="navbar">
+  <input type="checkbox" id="menu-toggle" class="nav-toggle">
+
+  <label for="menu-toggle" class="nav-toggle-label">
+    <span></span>
+    <span></span>
+    <span></span>
+  </label>
+
+  <div class="nav-menu">
+    <h2>Lists</h2>
+    <ul>
+      <li><a href="/">Daily Tasks</a></li>
+
+      <li style="border-top: 1px solid #ddd; margin-top: 10px; padding-top: 10px; color: #888; font-size: 0.8em;">
+        PERSONALIZED LISTS
+      </li>
+
+      <% if (locals.savedLists && savedLists.length > 0) { %>
+
+        <% savedLists.forEach(function(list) { %>
+          <li>
+            <a href="/<%= list.name %>"> <%= list.name %> </a>
+          </li>
+        <% }); %>
+
+      <% } else { %>
+        <li><span style="font-size: 0.8em; padding: 0 20px;">No custom lists yet</span></li>
+      <% } %>
+
+    </ul>
+  </div>
+</nav>
