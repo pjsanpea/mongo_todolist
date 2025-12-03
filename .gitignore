@@ -104,6 +104,9 @@ dist
 .temp
 .cache
 
+# NOT TO UPLOAD node_modules
+node_modules
+
 # Docusaurus cache and generated files
 .docusaurus
 
